@@ -1,70 +1,50 @@
-# Multi-Agent Collaborative Reasoning with Chain-of-Thought
+# Multi-Agent Orchestrator
 
-A framework that decomposes complex tasks across specialized LLM agents. A planner breaks the problem down, domain specialists (coder, researcher, analyst) work on their parts, and a synthesizer merges everything into a coherent answer.
+One TinyLlama model is reused with planner, coder, researcher, analyst and synthesizer prompts. The orchestrator generates a plan, calls the selected specialist roles sequentially, then generates a synthesis.
 
-## how it works
-
-```
-task → planner agent → subtask decomposition
-                            ↓
-              coder / researcher / analyst (parallel)
-                            ↓
-                    synthesizer agent → final answer
+```text
+task → planner → selected specialists, one at a time → synthesizer
 ```
 
-all agents share a single TinyLlama-1.1B model but use different system prompts to specialize their behavior. the orchestrator manages the three-phase pipeline: plan, execute, synthesize.
+These are prompted roles, not independently equipped agents: there is no web research, tool use, code execution or external evidence verification. The plan is generated text, not a parsed task-routing specification.
 
-**agents:**
-- **planner** — breaks the task into 2-4 focused subtasks
-- **coder** — writes clean, commented code solutions
-- **researcher** — provides structured analysis with evidence
-- **analyst** — gives quantitative insights and recommendations
-- **synthesizer** — merges all outputs into a unified response
+## Run the API locally
 
-## setup
+Use Python 3.10+. From the repository root:
 
 ```bash
-pip install -r requirements.txt
-python main.py
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+uvicorn main:app --host 127.0.0.1 --port 8005
 ```
 
-runs at `localhost:8005`. swagger docs at `/docs`.
+On Windows PowerShell, use `.\.venv\Scripts\Activate.ps1` for activation. Open `http://127.0.0.1:8005/docs`.
 
-## api
+Startup loads `TinyLlama/TinyLlama-1.1B-Chat-v1.0`, downloading weights if absent from the cache. CUDA is selected when available, otherwise CPU. Dependencies are unpinned; no supported-environment test matrix is committed.
 
-| endpoint | method | what it does |
-|----------|--------|-------------|
-| `/health` | GET | model status + available agents |
-| `/agents` | GET | list agents with descriptions |
-| `/orchestrate` | POST | run full multi-agent pipeline |
-| `/agent/single` | POST | run a single agent directly |
+| Method | Path | Behavior |
+|---|---|---|
+| GET | `/health` | Model status and available roles |
+| GET | `/agents` | Role descriptions |
+| POST | `/orchestrate` | Planner, sequential specialists, synthesis |
+| POST | `/agent/single` | One prompted role |
 
-## architecture
+The [explicit loopback host](https://uvicorn.dev/settings/) is for local use. `python main.py` instead binds all interfaces with reload enabled. There is no API authentication and CORS permits all origins.
 
-```
-core/
-├── config.py        → model settings, role prompts
-├── agents.py        → Role enum, AgentPool, shared model
-└── orchestrator.py  → 3-phase pipeline coordination
+## Streamlit status
 
-api/
-├── schemas.py       → pydantic request/response models
-└── routes.py        → endpoint handlers
+`streamlit run app.py` loads a separate model-backed interface, but its Run action currently has a code defect: [app.py](app.py) passes `agents=` to `Orchestrator.run`, whose parameter is `agent_names`. This raises a keyword-argument error. The API passes the arguments differently and does not have that particular mismatch. This documentation change does not fix the UI.
 
-main.py              → FastAPI entry point, lifespan
-app.py               → streamlit frontend
-```
+The interface also waits for the full pipeline result before displaying phases; it is not live phase-by-phase streaming.
 
-## streamlit demo
+## Implementation and limits
 
-```bash
-streamlit run app.py
-```
+[core/agents.py](core/agents.py) handles model loading and role prompts; [core/orchestrator.py](core/orchestrator.py) performs the sequential loop. Inputs are truncated to 2,048 tokens, so long plans and specialist outputs can lose context. Outputs are sampled and may contradict one another or contain unsupported claims. No reasoning-quality evaluation, speed benchmark or test suite is committed.
 
-enter a task, pick which agents to use, watch the pipeline run phase by phase.
+Setup, model execution and browser flows were not rerun for this documentation update.
 
-## requirements
+## Related implementations
 
-- python 3.10+
-- ~3GB for model weights
-- GPU recommended but not required
+Related versions live in [ML-Portfolio-Projects](https://github.com/Zinga18018/ML-Portfolio-Projects): the [API variant](https://github.com/Zinga18018/ML-Portfolio-Projects/tree/master/project5-multi-agent) and a separate [HF Space variant](https://github.com/Zinga18018/ML-Portfolio-Projects/tree/master/hf-spaces/multi-agent). They are different implementations; their interfaces or deployment claims do not establish this repository's behavior.
+
